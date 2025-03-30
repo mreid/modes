@@ -135,6 +135,7 @@ see some pretty hacky stuff!
         tickTo.rotation = posDiff * ARC_RADIANS;
 
         var label = two.makeGroup(two.makeText("♭", 0, -ARC_RADIUS - 10));
+        if(reverse) { label.rotation = posDiff * ARC_RADIANS; };
         var initFrame = null;
 
         this.anim = (p) => {
