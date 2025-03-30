@@ -1,0 +1,500 @@
+<!--
+Modes of the major scale animation.
+
+Author: Mark Reid
+Created: 2025-03-30
+
+Disclaimer: I threw this together in a weekend and am not a regular Javascript 
+programmer so if you are brave enough to look through this code be prepared to 
+see some pretty hacky stuff!
+-->
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8">
+  <title>title</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="lib/two.min.js"></script>
+</head>
+
+<body>
+  <div id="container">
+    <div id="header">
+      <h3>Modes of the Major Scale</h3>
+      <p>
+        An animation showing which notes are in a mode for a fixed root as the mode changes.
+        The scale degrees are shown on the circle of fifths (left) and on a pitch wheel (right).
+        The red arc on each shows which note is flattened as the mode changes.
+      </p><p>
+        The keyboard shows the root note (dark blue) and note to be flattened (red). 
+        As the mode changes from Locrian back to Lydian the root takes as half-step down.
+      </p>
+      <p><em>Credits</em>: Inspired by a <a href="https://mastodon.social/@katchwreck/114216232873481575">discussion and animation</a> 
+        by <a href="https://mastodon.social/@katchwreck">katch wreck</a> on Mastodon. Makes use
+        of the excellent <a href=https://two.js.org>two.js</a> 2D drawing library.</p>
+    </div>
+    <div id="contents"></div>
+    <script>
+      var params = {
+        fitted: true
+        // fullscreen: true
+      };
+      var contents = document.getElementById("contents");
+      var two = new Two(params).appendTo(contents);
+      var cx = two.width / 2;
+      var cy = two.height / 2;
+
+      // Mode highlight
+      const NOTE_COLOR = '#5555FF';
+      const ROOT_COLOR = '#7777AA';
+      const ON_NOTE_WHITE = '#AAAAFF';
+      const ON_NOTE_BLACK = '#5555FF';
+      const NOTE_TO_FLAT_COLOR = '#AA7755';
+      const ARC_COLOR = 'rgba(200, 0, 0, 1)';
+      const ARC_RADIANS = Math.PI / 6;  // 30º = 1/12th of a circle
+      const SPOKE_LENGTH = 100;
+      const ARC_OFFSET = 50;
+      const ARC_RADIUS = SPOKE_LENGTH + ARC_OFFSET;
+      const DEG_RADIUS = 20;
+      const DEGREES = ["1", "b2", "2", "b3", "3", "4", "#4", "5", "b6", "6", "b7", "7"];
+      const DEGREES_P5 = cycleBy(DEGREES, 7);
+
+      function Mode(name, notes) {
+        var degrees = notes.map(n => DEGREES.indexOf(n));
+        return {name: name, notes: notes, degrees: degrees};
+      };
+
+      const MODES = [
+        new Mode("lydian",     ["1",  "2",  "3", "#4",  "5",  "6",  "7"]),
+        new Mode("ionian",     ["1",  "2",  "3",  "4",  "5",  "6",  "7"]),
+        new Mode("mixolydian", ["1",  "2",  "3",  "4",  "5",  "6", "b7"]),
+        new Mode("dorian",     ["1",  "2", "b3",  "4",  "5",  "6", "b7"]),
+        new Mode("aeolian",    ["1",  "2", "b3",  "4",  "5", "b6", "b7"]),
+        new Mode("phrygian",   ["1", "b2", "b3",  "4",  "5", "b6", "b7"]),
+        new Mode("locrian",    ["1", "b2", "b3",  "4", "#4", "b6", "b7"])
+      ];
+      const NAME_TO_MODE = Object.fromEntries(MODES.map(m => [m.name, m]));
+      const MODE_NAMES = Object.keys(NAME_TO_MODE);
+
+      var animPlaying = false;
+      two.renderer.domElement.addEventListener('pointerdown', onClick, false);
+      function onClick(e) {
+        if (!animPlaying) {
+          var shape = two.scene.getById(e.target.id);
+          if (shape && typeof shape["onClick"] == "function") {
+            shape.onClick(e);
+          }
+        };
+      }
+
+      function cycleBy(arr, by, start = 0) {
+        var len = arr.length;
+        return arr.map((x, i) => arr[(start + i * by + len) % len]);
+      }
+
+      function flatten(noteName) {
+        var idx = DEGREES.indexOf(noteName);
+        return DEGREES[(idx - 1 + 12) % 12];
+      }
+
+      const MODE_TO_FLAT = {
+        lydian: "#4",
+        ionian: "7",
+        mixolydian: "3",
+        dorian: "6",
+        aeolian: "2",
+        phrygian: "5",
+        locrian: "1"
+      };
+
+      function Arc(modeName, degreeNames) {
+        var noteToFlat = MODE_TO_FLAT[modeName];
+        var flatNote = flatten(noteToFlat);
+        var startPos = degreeNames.indexOf(flatNote);
+        var endPos = degreeNames.indexOf(noteToFlat);
+
+        // Swap variables to get shortest arc mod 12
+        startPos = (startPos + 12) % 12;
+        endPos = (endPos + 12) % 12;
+        var reverse = startPos < endPos;
+        var diff1 = (endPos - startPos + 12) % 12;
+        var diff2 = (startPos - endPos + 12) % 12;
+        var posDiff = diff1;
+        if (diff1 > diff2) {
+          [endPos, startPos] = [startPos, endPos];
+          posDiff = diff2;
+        }
+        this.shape = two.makeGroup();
+        var arc = two.makeArcSegment(0, 0, ARC_RADIUS, ARC_RADIUS + 3, -Math.PI / 2, posDiff * ARC_RADIANS - Math.PI / 2);
+        var tickFrom = two.makeLine(0, -ARC_RADIUS, 0, -ARC_RADIUS + 10);
+        var tickTo = two.makeGroup(two.makeLine(0, -ARC_RADIUS, 0, -ARC_RADIUS + 10));
+        tickTo.rotation = posDiff * ARC_RADIANS;
+
+        var label = two.makeGroup(two.makeText("♭", 0, -ARC_RADIUS - 10));
+        var initFrame = null;
+
+        this.anim = (p) => {
+          if (reverse) { p = 1 - p; }
+          label.rotation = p * posDiff * ARC_RADIANS;
+        };
+
+        var arcg = two.makeGroup(arc, tickFrom, tickTo, label);
+        arcg.rotation = startPos * ARC_RADIANS;
+        this.shape.add(arcg);
+        this.shape.fill = ARC_COLOR;
+        this.stroke = ARC_COLOR;
+      };
+
+      function drawDegree(pos, name) {
+        // Make flats and sharps look nicer
+        name = name.replace("b", "♭").replace("#", "♯");
+
+        var line = two.makeLine(0, -1 * SPOKE_LENGTH);
+        var circ = two.makeCircle(0, -1 * (SPOKE_LENGTH + DEG_RADIUS), DEG_RADIUS);
+        
+        // Highlight root
+        if (pos == 0) { circ.stroke = ROOT_COLOR; circ.linewidth = 5; }
+        var degName = two.makeText(name, 0, -1 * (SPOKE_LENGTH + DEG_RADIUS));
+        // Rotate degree name anti-clockwise so when it is rotated with the group it remains upright
+        degName.pos = pos;
+        degName.rotation = -1 * degName.pos * ARC_RADIANS;
+        // Make the line + circle + name (order is z-order: backmost-to-frontmost)
+        var spoke = two.makeGroup(line, circ, degName);
+        spoke.rotation = pos * ARC_RADIANS;
+        spoke.label = degName;
+
+        return spoke;
+      };
+
+      // Scale degrees
+      function Degrees(degrees) {
+        this.shape = two.makeGroup();
+        degrees.forEach((d, i) => {
+          var spoke = drawDegree(i, d);
+          this.shape.add(spoke);
+        });
+      };
+
+      function Notes(root, modeName, degreeNames) {
+        this.positions = NAME_TO_MODE[modeName].notes.map(n => degreeNames.indexOf(n));
+        this.shape = two.makeGroup();
+        this.positions.forEach((pos, idx) => {
+          var note = two.makeCircle(0, -1 * (SPOKE_LENGTH + DEG_RADIUS), DEG_RADIUS);
+          // Need to make a group for rotations to work for some reason?
+          var noteg = two.makeGroup(note);
+          noteg.rotation = (root + pos) * ARC_RADIANS;
+          this.shape.add(noteg);
+        });
+        this.shape.fill = NOTE_COLOR;
+        this.shape.opacity = 0.5;
+        this.shape.stroke = NOTE_COLOR;
+        
+        this.anim = (step) => {
+          return (prop) => { this.shape.rotation = prop * step * ARC_RADIANS; };
+        };
+      };
+
+      function Circle(degreeNames) {
+        this.degreeNames = degreeNames;
+        this.degrees = new Degrees(degreeNames);
+        this.notes = new Notes(0, "lydian", this.degreeNames);
+        this.arc = new Arc("lydian", degreeNames);
+        this.shape = two.makeGroup(this.degrees.shape, this.notes.shape, this.arc.shape);
+
+        this.setMode = (modeName) => {
+          this.shape.remove(this.notes.shape);
+          this.notes = new Notes(0, modeName, this.degreeNames);
+          this.shape.add(this.notes.shape);
+          this.shape.remove(this.arc.shape);
+          this.arc = new Arc(modeName, this.degreeNames);
+          this.shape.add(this.arc.shape);
+        };
+
+        this.reset = () => {
+          this.shape.rotation = 0;
+          this.degrees.shape.children.forEach(
+            s => s.label.rotation = -s.label.pos * ARC_RADIANS
+          );
+        };
+
+        this.anim = (step) => {
+          return (p) => {
+            this.degrees.shape.children.forEach(
+              s => s.label.rotation = -(s.label.pos + p * step) * ARC_RADIANS
+            );
+            this.shape.rotation = p * step * ARC_RADIANS;
+          };
+        }
+      };
+
+      const WHITE_KEY_WIDTH = 20;
+      const WHITE_KEY_HEIGHT = 90;
+      const BLACK_KEY_WIDTH = WHITE_KEY_WIDTH / 2;
+      const BLACK_KEY_HEIGHT = WHITE_KEY_HEIGHT / 1.5;
+      const NUM_OCTAVES = 3;
+      const NUM_KEYS = NUM_OCTAVES * 12;
+      const OCTAVE_WIDTH = 7 * WHITE_KEY_WIDTH;
+      const KEYBOARD_WIDTH = NUM_OCTAVES * OCTAVE_WIDTH;
+
+      const WHITE_KEY_IDXS = [0, 2, 4, 5, 7, 9, 11];
+      const KEY_POS  = [0, 0.5, 1, 1.5, 2, 3, 3.5, 4, 4.5, 5, 5.5, 6];
+      
+      function Key(octave, degree, keyboard) {
+        this.keyboard = keyboard;
+        this.octave = octave;
+        this.degree = degree;
+        this.isWhite = WHITE_KEY_IDXS.includes(degree);
+        this.color = this.isWhite ? "white" : "black";
+        var keyPos = KEY_POS[degree];
+        if(this.isWhite) {
+          this.shape = two.makeRectangle(
+            WHITE_KEY_WIDTH * keyPos + OCTAVE_WIDTH * octave,
+            0,
+            WHITE_KEY_WIDTH, 
+            WHITE_KEY_HEIGHT);
+        } else {
+          this.shape = two.makeRectangle(
+            WHITE_KEY_WIDTH * keyPos + OCTAVE_WIDTH * octave, 
+            (BLACK_KEY_HEIGHT - WHITE_KEY_HEIGHT) / 2,
+            BLACK_KEY_WIDTH, 
+            BLACK_KEY_HEIGHT);
+        }
+        this.shape.fill = this.color;
+        this.shape.onClick = (e) => {
+          this.keyboard.setRoot(this.octave * 12 + this.degree);
+        };
+      };
+
+      function Keyboard(numKeys = NUM_KEYS) {
+        this.notes = [];
+        this.keys = [];
+        this.modeName = "lydian";
+        this.numKeys = numKeys;
+        this.octaves = Math.floor(numKeys / 12);
+        this.rootIdx = 0;
+        var whiteKeys = two.makeGroup();
+        var blackKeys = two.makeGroup();
+
+        for(let i = 0; i < numKeys; i++) {
+          var octave = Math.floor(i/12);
+          var degree = i % 12;
+          var key = new Key(octave, degree, this);
+          (key.isWhite ? whiteKeys : blackKeys).add(key.shape);
+          this.keys[i] = key;
+        };
+        this.shape = two.makeGroup(whiteKeys, blackKeys);
+
+        function _setNote(note) { note.shape.fill = note.isWhite ? ON_NOTE_WHITE : ON_NOTE_BLACK; };
+        function _clearNote(note) { note.shape.fill = note.isWhite ? "white" : "black" };
+        function _flatNote(note) { note.shape.fill = NOTE_TO_FLAT_COLOR; }
+
+        this.clearNotes = () => { this.keys.map(_clearNote); };
+        
+        this.setNotes = (notes) => {
+          this.clearNotes();
+          this.notes = notes;
+          var offsetNotes = this.notes.map(n => (n + this.rootIdx) % 12);
+          this.keys.map(k => offsetNotes.includes(k.degree) && _setNote(k))
+        }
+        
+        this.setMode = (modeName) => {
+          this.modeName = modeName;
+          
+          var degrees = NAME_TO_MODE[this.modeName].degrees;
+          this.setNotes(degrees);
+          
+          var noteToFlat = MODE_TO_FLAT[modeName];
+          var mode =  NAME_TO_MODE[modeName];
+          var noteToFlatPos = mode.notes.indexOf(noteToFlat);
+          var flatNote = flatten(noteToFlat);
+          
+          this.noteToFlatDegree = mode.degrees[noteToFlatPos];
+          var offsetNoteToFlat = (this.noteToFlatDegree + this.rootIdx) % 12;
+          this.keys.map(k => (k.degree == offsetNoteToFlat) && _flatNote(k));
+        }
+
+        this.setRoot = (rootIdx) => {
+          this.clearNotes();
+          this.rootIdx = rootIdx % 12;
+          this.setNotes(this.notes || []);
+          for(let root = this.rootIdx; root < this.numKeys; root += 12) {
+            this.keys[root].shape.fill = ROOT_COLOR;
+          };
+          var offsetNoteToFlat = (this.noteToFlatDegree + this.rootIdx) % 12;
+          this.keys.map(k => (k.degree == offsetNoteToFlat) && _flatNote(k));
+        };
+      };
+
+      const BUTTON_WIDTH = two.width / 8;
+      const BUTTONS_WIDTH = MODES.length * BUTTON_WIDTH;
+      const BUTTON_HEIGHT = 20;
+
+      function Button(name, onClick) {
+        this.label = name;
+        this.onClick = (e) => { onClick(e); this.set() };
+        var box = two.makeRectangle(0, 0, BUTTON_WIDTH, BUTTON_HEIGHT);
+        box.onClick = (e) => this.onClick(e);
+
+        var label = two.makeText(this.label, 0, 0);
+        label.onClick = (e) => this.onClick(e);
+        
+        this.clear = () => { box.fill = "white"; box.opacity = 1.0; };
+        this.set = () => { box.fill = NOTE_COLOR; box.opacity = 0.5; }
+        this.shape = two.makeGroup(box, label);
+      };
+
+      function ButtonGroup(modeFn) {
+        this.buttons = {};
+        this.shape = two.makeGroup();
+
+        Object.keys(NAME_TO_MODE).forEach((name, i) => {
+          var button = new Button(name, (e) => { this.clear(); modeFn(name); });
+          button.shape.translation.set(i * BUTTON_WIDTH, 0)
+          this.buttons[name] = button;
+          this.shape.add(button.shape);
+        });
+        
+        this.clear = () => { Object.values(this.buttons).forEach(b => b.clear()); }
+        this.setMode = (modeName) => { this.buttons[modeName].onClick(); };
+      };
+
+      function PlayButton(playFn, pauseFn) {
+        this._play = two.makeText("▶️", 0, 0);
+        this._play.visible = true;
+        this._pause = two.makeText("⏸️", 0, 0);
+        this._pause.visible = false;
+        this.shape = two.makeGroup(this._play, this._pause);
+        this.shape.scale = 3;
+
+        this._start = function() {
+          console.log("play!");
+          this._play.visible = false;
+          this._pause.visible = true;
+          playFn();
+        };
+        this._play.onClick = (e) => this._start();
+        
+        this._stop = function() {
+          console.log("pause!");
+          this._play.visible = true;
+          this._pause.visible = false;
+          pauseFn();
+        };
+        this._pause.onClick = (e) => this._stop();
+      };
+
+      function Viz(modeName, root) {
+        this.mode = modeName;
+        this.root = root;
+        this.circle5ths = new Circle(DEGREES_P5);
+        var cr = this.circle5ths.shape.getBoundingClientRect();
+        var topOffset = 2 * BUTTON_HEIGHT + cr.bottom;
+        this.circle5ths.shape.translation.set(cx - cr.width/1.5, topOffset);
+        
+        this.circle2nds = new Circle(DEGREES);
+        var cr = this.circle2nds.shape.getBoundingClientRect();
+        var topOffset = Math.max(topOffset, 2 * BUTTON_HEIGHT + cr.bottom);
+        this.circle2nds.shape.translation.set(cx + cr.width/1.5, topOffset);
+        
+        this.keys = new Keyboard();
+        var cr = this.circle2nds.shape.getBoundingClientRect();
+        var kr = this.keys.shape.getBoundingClientRect();
+        this.keys.shape.translation.set(cx - kr.width/2, cr.bottom + kr.height);
+        
+        this.setMode = (modeName) => {
+          this.mode = modeName;
+          this.circle5ths.setMode(modeName);
+          this.circle2nds.setMode(modeName);
+          this.keys.setMode(modeName);
+        };
+       
+        this.setRoot = (root) => {
+          this.root = root;
+          this.keys.setRoot(root);
+          this.circle5ths.reset();
+          this.circle2nds.reset();
+        };
+
+        this.buttons = new ButtonGroup(this.setMode);
+        this.buttons.shape.translation.set(two.width - BUTTONS_WIDTH, BUTTON_HEIGHT);
+        
+        this.start = () => {
+          animPlaying = true;
+          var nextModePos = (MODE_NAMES.indexOf(this.mode) + 1) % 7;
+          var nextMode = MODE_NAMES[nextModePos];
+          var nextRoot = (
+            (nextModePos == 0) 
+            ? (this.keys.rootIdx - 1 + 12) % 12 
+            : this.keys.rootIdx
+          );
+          schedule(0, 120, this.circle5ths.notes.anim(-1));
+          schedule(0, 120, this.circle2nds.notes.anim(5));
+          schedule(0, 120, this.circle5ths.arc.anim);
+          schedule(0, 120, this.circle2nds.arc.anim);
+          schedule(120, 120, (p) => {
+            if(nextModePos == 0) {
+              this.circle5ths.anim(-5)(p);
+              this.circle2nds.anim(1)(p);
+            };
+          }, 
+          null,
+          () => { 
+            this.setMode(nextMode); 
+            this.setRoot(nextRoot);
+            this.start(); 
+          });
+          // schedule(120, 60, (p) => {}, null, this.start);
+        };
+
+        this.stop = () => {
+          animPlaying = false;
+          this.setMode(this.mode);
+          this.setRoot(this.root);
+        };
+
+        this.play = new PlayButton(this.start, this.stop);
+        var pr = this.play.shape.getBoundingClientRect();
+        this.play.shape.translation.set(cx, 2 * BUTTON_HEIGHT + pr.bottom);
+        // TODO: Add back interactivity
+        this.play.shape.visible = false;
+
+        this.setMode = (modeName) => { this.buttons.setMode(modeName) };
+      }
+
+      var viz = new Viz();
+      viz.setMode("lydian");
+      viz.keys.setRoot(0);
+      viz.start();
+
+      function schedule(start, duration, eachFn, startFn, endFn) {
+        /**
+         * Wait `start` frames and call the parameterless `startFn`.
+         * Call `eachFn` each frame after `start` frames for `duration` frames.
+         * Argument passed to `fn` is the proportion of the `duration` frames already passed.  
+         * Call `endFn` once `duration` frames are over.
+         */
+        var initFrame = null;
+        function anim(frameCount) {
+          if (initFrame == null) { initFrame = frameCount; };
+          var dFrames = frameCount - initFrame;
+          if (dFrames >= start) {
+            if (dFrames == start) { startFn && startFn(); };
+
+            var prop = (dFrames - start) / duration;
+            if (prop <= 1.0) {
+              eachFn(prop);
+            } else {
+              two.unbind('update', anim);
+              endFn && endFn();
+            };
+          };
+        };
+        two.bind('update', anim);
+      };
+
+      two.play();
+    </script>
+</body>
+
+</html>

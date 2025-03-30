@@ -1,0 +1,17 @@
+html, body { width: 100%; background: white; font-family: sans-serif; font-size: small; }
+h1 { text-align: center; }
+#contents { 
+  min-height: 90vh; 
+  /* min-height: -webkit-fill-available;  */
+  width: 95%;
+  margin: 0 auto;
+  /* padding: 0px; */
+  vertical-align: top;
+}
+#header {
+  text-align: justify;
+  padding: 2% 15%;
+}
+.mode { 
+  margin: 0 auto; 
+}
