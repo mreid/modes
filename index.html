@@ -431,11 +431,11 @@ see some pretty hacky stuff!
             ? (this.keys.rootIdx - 1 + 12) % 12 
             : this.keys.rootIdx
           );
-          schedule(0, 120, this.circle5ths.notes.anim(-1));
-          schedule(0, 120, this.circle2nds.notes.anim(5));
-          schedule(0, 120, this.circle5ths.arc.anim);
-          schedule(0, 120, this.circle2nds.arc.anim);
-          schedule(120, 120, (p) => {
+          schedule(60, 120, this.circle5ths.notes.anim(-1));
+          schedule(60, 120, this.circle2nds.notes.anim(5));
+          schedule(60, 120, this.circle5ths.arc.anim);
+          schedule(60, 120, this.circle2nds.arc.anim);
+          schedule(60, 120, (p) => {
             if(nextModePos == 0) {
               this.circle5ths.anim(-5)(p);
               this.circle2nds.anim(1)(p);
@@ -447,7 +447,6 @@ see some pretty hacky stuff!
             this.setRoot(nextRoot);
             this.start(); 
           });
-          // schedule(120, 60, (p) => {}, null, this.start);
         };
 
         this.stop = () => {
